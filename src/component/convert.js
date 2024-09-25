@@ -1,21 +1,9 @@
 const officeParser = require('officeparser');
-const { PDFDocument } = require('pdf-lib');
+const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
 const sharp = require('sharp');
 const fs = require('fs').promises;
 const path = require('path');
 
-// const processOfficeFile = async (buffer, fileName) => {
-//     try {
-//         const data = await officeParser.parseOfficeAsync(buffer);
-//         if (!data || typeof data.text !== 'string') {
-//             throw new Error('El archivo no contiene texto extraíble o el formato no es compatible.');
-//         }
-//         return { fileName, content: data.text };
-//     } catch (err) {
-//         console.error("Error procesando archivo de Office:", err);
-//         throw err;
-//     }
-// };
 
 const processOfficeFile = async (buffer, fileName) => {
     try {
@@ -24,7 +12,6 @@ const processOfficeFile = async (buffer, fileName) => {
       console.log("buffer------------------>", buffer);
       console.log("fileName------------------>", fileName);
   
-      // Verificar si data existe y tiene propiedades
       if (!data) {
         throw new Error('El archivo no contiene contenido extraíble o el formato no es compatible.');
       }
@@ -33,14 +20,31 @@ const processOfficeFile = async (buffer, fileName) => {
       let content = '';
       if (typeof data === 'string') {
         content = data;
-      } else if (typeof data.text === 'string') {
-        content = data.text;
-      } else if (data.value && typeof data.value === 'string') {
+        console.log('------data-------->',data);
+      } 
+      
+      else if (typeof data.text === 'string') {
+        content += data.text;
+        console.log('------data.text-------->',data.text);
+      }
+      
+      else if (data.value && typeof data.value === 'string') {
         content = data.value;
-      } else if (Array.isArray(data.sheets)) {
-        // Para archivos Excel
-        content = data.sheets.map(sheet => sheet.data.join('\n')).join('\n\n');
-      } else if (Array.isArray(data.slides)) {
+        console.log('------data.value-------->',data.value);
+      }
+      
+      else if (data.tables && data.tables.length > 0) {
+        content = data.tables
+        data.tables.forEach((table, index) => {
+          content += `Tabla ${index + 1}:\n`;
+          table.forEach((row) => {
+            content += row.join(' | ') + '\n'; // Simulamos la representación de tablas
+          });
+          content += '\n';
+        });
+      }
+  
+        else if (Array.isArray(data.slides)) {
         // Para archivos PowerPoint
         content = data.slides.map(slide => slide.text).join('\n\n');
       } else if (typeof data.getBody === 'function') {
@@ -61,11 +65,10 @@ const processOfficeFile = async (buffer, fileName) => {
       return { fileName, content };
     } catch (err) {
       console.error("=========err======", err);
-      // En lugar de lanzar el error, retornamos un objeto con un mensaje de error
+
       return { fileName, content: `Error al procesar ${fileName}: ${err.message}` };
     }
   };
-  
   
   const processTextFile = async (buffer, fileName) => {
     const textContent = buffer.toString('utf8');
@@ -79,45 +82,34 @@ const processOfficeFile = async (buffer, fileName) => {
   
   const convertToPdf = async (contentArray) => {
     const pdfDoc = await PDFDocument.create();
+    const timesRomanFont = await pdfDoc.embedFont(StandardFonts.TimesRoman);
   
-    for (const { content } of contentArray) {
-      const page = pdfDoc.addPage();
-      page.drawText(content);
-    }
-  
-    return await pdfDoc.save();
-  }
-  
-//   const convertFilesToPdf = async (files) => {
-//     const pdfFiles = [];
-  
-//     for (let file of files) {
-//       const fileExtension = file.originalname.split('.').pop().toLowerCase();
-//       let pdfFile;
-      
-//       switch (fileExtension) {
-//         case 'docx':
-//           const docsData = await processOfficeFile(file.buffer, file.originalname)
-//           const docsBfr = await convertToPdf([{ fileName: docsData.fileName, content: docsData.content }]);
-//           pdfFile = { fileName: file.originalname.replace(/\.[^/.]+$/, ".pdf"), buffer: docsBfr };
-//           break;
-  
-//         case 'xlsx':
-//         case 'pptx':
-//         case 'png':
-//         case 'jpg':
-//         case 'jpeg':
-//         case 'txt':
-//         default:
-//           throw new Error(`Formato de archivo no soportado: ${file.originalname}`);
-//       }
-  
-//       pdfFiles.push(pdfFile);
-//     }
-  
-//     return pdfFiles;
-//   }
+    let page = pdfDoc.addPage();
+  const { width, height } = page.getSize();
+  const fontSize = 12;
+  const margin = 50;
+  let yPosition = height - margin;
 
+  for (const { content } of contentArray) {
+    const lines = content.split('\n');
+    for (const line of lines) {
+      if (yPosition < margin) {
+        page = pdfDoc.addPage();  // Añadimos una nueva página si se llena
+        yPosition = height - margin;
+      }
+      page.drawText(line, {
+        x: margin,
+        y: yPosition,
+        size: fontSize,
+        font: timesRomanFont,
+        color: rgb(0, 0, 0),
+      });
+      yPosition -= fontSize * 1.2;
+    }
+  }
+
+  return await pdfDoc.save();
+};
 
 const convertFilesToPdf = async (files) => {
   const pdfFiles = [];
@@ -131,10 +123,11 @@ const convertFilesToPdf = async (files) => {
         case 'docx':
         case 'xlsx':
         case 'pptx':
-          const officeData = await processOfficeFile(file.buffer, file.originalname);
-          const officePdf = await convertToPdf([{ fileName: officeData.fileName, content: officeData.content }]);
-          pdfFile = { fileName: file.originalname.replace(/\.[^/.]+$/, ".pdf"), buffer: officePdf };
+          const fileData = await processOfficeFile(file.buffer, file.originalname);
+          const pdfBuffer = await convertToPdf([{ content: fileData.content }]);
+          pdfFile = { fileName: file.originalname.replace(/\.[^/.]+$/, ".pdf"), buffer: pdfBuffer };
           break;
+
 
         case 'txt':
           const textContent = file.buffer.toString('utf8');
@@ -168,51 +161,12 @@ const convertFilesToPdf = async (files) => {
       pdfFiles.push(pdfFile);
     } catch (error) {
       console.error(`Error al procesar el archivo ${file.originalname}:`, error);
-      // Opcionalmente, puedes decidir si quieres continuar con los demás archivos o detener el proceso
-      // throw error; // Descomenta esta línea si quieres que el proceso se detenga al encontrar un error
     }
   }
 
   return pdfFiles;
 };
   
-//   const fileConverter = async(req, res) => {
-//     try {
-//       const files = req.files;
-      
-  
-//       if (!files || files.length === 0) {
-//         return res.status(400).json({ error: { name: error.name, message: error.message }});
-//       }
-  
-//       const convertedFiles = await convertFilesToPdf(files);
-  
-//       const outputDir = req.app.get('convertedFilesDir');
-//       await fs.mkdir(outputDir, { recursive: true });
-  
-//       const savedFiles = await Promise.all(convertedFiles.map(async (file) => {
-//         const filePath = path.join(outputDir, file.fileName);
-//         await fs.writeFile(filePath, file.buffer);
-//         return { fileName: file.fileName, path: filePath };
-//       }));
-  
-  
-//       res.status(201).json({
-//         code: 201,
-//         status: true,
-//         message: "Archivos convertidos a PDF correctamente",
-//         data: savedFiles,
-//       });
-//     } catch (err) {
-//       console.error("Error en la conversión:", err);
-//       res.status(500).json({
-//         code: 500,
-//         status: false,
-//         message: "Error al convertir archivos",
-//         error: err.message,
-//       });
-//     }
-//   }
 
 const fileConverter = async (req, res) => {
     try {
@@ -224,7 +178,6 @@ const fileConverter = async (req, res) => {
   
       const convertedFiles = await convertFilesToPdf(files);
   
-      // Asegúrate de que 'convertedFilesDir' esté definido en tu aplicación
       const outputDir = req.app.get('convertedFilesDir') || path.join(__dirname, '../converted_files');
       await fs.mkdir(outputDir, { recursive: true });
   
