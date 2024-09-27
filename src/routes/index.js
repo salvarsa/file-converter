@@ -1,9 +1,7 @@
-const express = require('express')
-const router = express.Router()
-const multer = require("multer")();
-const fileConverter = require("./../component/convert");
+const express = require('express');
+const router = express.Router();
+const { convertController, upload } = require('../component/convert.js');
 
-
-router.post("/convert/convert-to-pdf", multer.any(), fileConverter);
+router.post('/convert/convert-to-pdf', upload.single('file'), convertController);
 
 module.exports = router;
