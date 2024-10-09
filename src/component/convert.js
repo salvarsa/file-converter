@@ -21,7 +21,7 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (req, file, cb) => {
-  const allowedExtensions = ['.docx', '.xlsx', '.pptx', '.txt', '.svg'];
+  const allowedExtensions = ['.docx', '.xlsx', '.pptx', '.txt', '.svg', '.png', '.jpg', '.jpeg' ];
   const fileExtension = path.extname(file.originalname).toLowerCase();
   if (allowedExtensions.includes(fileExtension)) {
     cb(null, true);
@@ -33,6 +33,7 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({ 
   storage: storage,
   fileFilter: fileFilter
+
 });
 
 // Función para ejecutar el script de Python en el entorno virtual
@@ -42,7 +43,7 @@ function convertToPdf(inputFilePath) {
     const pythonPath = path.join(venvPath, isWindows ? 'Scripts' : 'bin', 'python');
     
     const pythonProcess = spawn(pythonPath, [pythonScriptPath, inputFilePath]);
-
+    
     let stdoutData = '';
     let stderrData = '';
 
